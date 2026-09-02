@@ -1,0 +1,62 @@
+- name: Deploy task tracker app
+  hosts: app_servers
+  become: yes 
+
+  tasks:
+    - name: Update apt cache 
+      apt:
+        update_cache: yes
+      
+    - name: Install python3, pip and git 
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+          - git 
+        state: present 
+    
+    - name: Clone the repo
+      git: 
+        repo: https://github.com/adityasingh345/devops-task-tracker
+        dest: /home/ubuntu/devops-task-tracker
+        force: yes
+    
+    - name: Create virtual environment and install dependencies
+      pip:
+        requirements: /home/ubuntu/devops-task-tracker/requirements.txt
+        virtualenv: /home/ubuntu/devops-task-tracker/venv
+        virtualenv_command: python3 -m venv
+    
+    - name: Kill any existing app process
+      shell: pkill -f "app.py" || true
+      ignore_errors: yes
+
+    - name: Start the Flask app
+      shell: nohup /home/ubuntu/devops-task-tracker/venv/bin/python /home/ubuntu/devops-task-tracker/app.py > /home/ubuntu/app.log 2>&1 &
+      async: 1
+      poll: 0
+
+    - name: Create systemd service file
+      copy:
+        dest: /etc/systemd/system/tasktracker.service
+        content: |
+          [Unit]
+          Description=Task Tracker Flask App
+          After=network.target
+
+          [Service]
+          User=ubuntu
+          WorkingDirectory=/home/ubuntu/devops-task-tracker
+          ExecStart=/home/ubuntu/devops-task-tracker/venv/bin/python /home/ubuntu/devops-task-tracker/app.py
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd and start service
+      systemd:
+        name: tasktracker
+        enabled: yes
+        state: restarted
+        daemon_reload: yes
